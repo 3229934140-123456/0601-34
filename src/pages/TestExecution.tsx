@@ -162,7 +162,6 @@ export default function TestExecutionPage() {
       actualResult: executionForm.actualResult,
       screenshots: executionForm.screenshots,
       logs: executionForm.logs,
-      executedAt: new Date().toLocaleString('zh-CN'),
       duration: Math.floor(Math.random() * 300) + 30,
     });
 

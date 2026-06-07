@@ -27,38 +27,73 @@ import {
 } from 'recharts';
 import { useApp } from '../context/AppContext';
 
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const cleaned = dateStr.replace(/-/g, '/');
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function formatDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function TestReport() {
   const { testCases, testExecutions, testPlans } = useApp();
 
   const [selectedPlan, setSelectedPlan] = useState('all');
   const [dateRange, setDateRange] = useState('7d');
 
-  const getDateRangeLabel = () => {
+  const dateRangeInfo = useMemo(() => {
     const days = parseInt(dateRange) || 7;
     const end = new Date();
+    end.setHours(23, 59, 59, 999);
     const start = new Date();
-    start.setDate(start.getDate() - days);
+    start.setDate(start.getDate() - days + 1);
+    start.setHours(0, 0, 0, 0);
     return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0],
+      start,
+      end,
       days,
+      startLabel: formatDateKey(start),
+      endLabel: formatDateKey(end),
     };
-  };
+  }, [dateRange]);
 
-  const dateRangeLabel = getDateRangeLabel();
+  const selectedPlanInfo = useMemo(() => {
+    if (selectedPlan === 'all') return null;
+    return testPlans.find((p) => p.id === selectedPlan) || null;
+  }, [selectedPlan, testPlans]);
+
+  const planCaseIds = useMemo(() => {
+    if (!selectedPlanInfo) return null;
+    return selectedPlanInfo.caseIds || [];
+  }, [selectedPlanInfo]);
+
+  const planTotalCases = useMemo(() => {
+    if (!planCaseIds) return testCases.length;
+    return planCaseIds.length;
+  }, [planCaseIds, testCases.length]);
 
   const filteredExecutions = useMemo(() => {
-    let result = [...testExecutions];
+    return testExecutions.filter((exec) => {
+      if (selectedPlan !== 'all' && exec.planId !== selectedPlan) {
+        return false;
+      }
 
-    if (selectedPlan !== 'all') {
-      result = result.filter((e) => e.planId === selectedPlan);
-    }
+      const execDate = parseDate(exec.executedAt || '');
+      if (!execDate) return true;
 
-    return result;
-  }, [testExecutions, selectedPlan]);
+      return execDate >= dateRangeInfo.start && execDate <= dateRangeInfo.end;
+    });
+  }, [testExecutions, selectedPlan, dateRangeInfo.start, dateRangeInfo.end]);
 
   const stats = useMemo(() => {
-    const totalCases = testCases.length;
+    const totalCases = planTotalCases;
     const passedCases = filteredExecutions.filter((e) => e.result === 'passed').length;
     const failedCases = filteredExecutions.filter((e) => e.result === 'failed').length;
     const blockedCases = filteredExecutions.filter((e) => e.result === 'blocked').length;
@@ -74,38 +109,39 @@ export default function TestReport() {
       passRate,
       coverageRate,
     };
-  }, [testCases, filteredExecutions]);
+  }, [planTotalCases, filteredExecutions]);
 
   const trendData = useMemo(() => {
-    const days = dateRangeLabel.days;
+    const days = dateRangeInfo.days;
     const data = [];
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     const executionsByDate: Record<string, { passed: number; failed: number; blocked: number }> = {};
 
     filteredExecutions.forEach((exec) => {
-      if (exec.executedAt) {
-        const dateStr = exec.executedAt.split(' ')[0];
-        if (!executionsByDate[dateStr]) {
-          executionsByDate[dateStr] = { passed: 0, failed: 0, blocked: 0 };
-        }
-        if (exec.result === 'passed') {
-          executionsByDate[dateStr].passed += 1;
-        } else if (exec.result === 'failed') {
-          executionsByDate[dateStr].failed += 1;
-        } else if (exec.result === 'blocked') {
-          executionsByDate[dateStr].blocked += 1;
-        }
+      const execDate = parseDate(exec.executedAt || '');
+      if (!execDate) return;
+      const dateKey = formatDateKey(execDate);
+      if (!executionsByDate[dateKey]) {
+        executionsByDate[dateKey] = { passed: 0, failed: 0, blocked: 0 };
+      }
+      if (exec.result === 'passed') {
+        executionsByDate[dateKey].passed += 1;
+      } else if (exec.result === 'failed') {
+        executionsByDate[dateKey].failed += 1;
+      } else if (exec.result === 'blocked') {
+        executionsByDate[dateKey].blocked += 1;
       }
     });
 
     for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const displayStr = `${date.getMonth() + 1}/${date.getDate()}`;
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const dateKey = formatDateKey(d);
+      const displayStr = `${d.getMonth() + 1}/${d.getDate()}`;
 
-      const dayData = executionsByDate[dateStr] || { passed: 0, failed: 0, blocked: 0 };
+      const dayData = executionsByDate[dateKey] || { passed: 0, failed: 0, blocked: 0 };
 
       data.push({
         date: displayStr,
@@ -116,7 +152,7 @@ export default function TestReport() {
     }
 
     return data;
-  }, [filteredExecutions, dateRangeLabel.days]);
+  }, [filteredExecutions, dateRangeInfo.days]);
 
   const failedCaseRank = useMemo(() => {
     const failedExecutions = filteredExecutions.filter((e) => e.result === 'failed');
@@ -150,11 +186,11 @@ export default function TestReport() {
   const hasData = stats.passedCases + stats.failedCases + stats.blockedCases > 0;
 
   const generateCSVContent = () => {
-    const planName = selectedPlan === 'all' ? '全部计划' : testPlans.find((p) => p.id === selectedPlan)?.name || '';
+    const planName = selectedPlan === 'all' ? '全部计划' : selectedPlanInfo?.name || '';
     const rows = [
       ['测试报告'],
       ['生成时间', new Date().toLocaleString('zh-CN')],
-      ['统计范围', `${dateRangeLabel.start} ~ ${dateRangeLabel.end}`],
+      ['统计范围', `${dateRangeInfo.startLabel} ~ ${dateRangeInfo.endLabel}`],
       ['测试计划', planName],
       [''],
       ['统计项', '数值'],
@@ -183,7 +219,7 @@ export default function TestReport() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `测试报告_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `测试报告_${dateRangeInfo.endLabel}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -191,7 +227,7 @@ export default function TestReport() {
   };
 
   const handleExportPDF = () => {
-    const planName = selectedPlan === 'all' ? '全部计划' : testPlans.find((p) => p.id === selectedPlan)?.name || '';
+    const planName = selectedPlan === 'all' ? '全部计划' : selectedPlanInfo?.name || '';
     const reportContent = `
 <!DOCTYPE html>
 <html>
@@ -215,7 +251,7 @@ export default function TestReport() {
 <body>
   <h1>自动化测试平台 - 测试报告</h1>
   <p><strong>生成时间：</strong>${new Date().toLocaleString('zh-CN')}</p>
-  <p><strong>统计范围：</strong>${dateRangeLabel.start} ~ ${dateRangeLabel.end}</p>
+  <p><strong>统计范围：</strong>${dateRangeInfo.startLabel} ~ ${dateRangeInfo.endLabel}</p>
   <p><strong>测试计划：</strong>${planName}</p>
   
   <div class="stats">
@@ -245,7 +281,7 @@ export default function TestReport() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `测试报告_${new Date().toISOString().split('T')[0]}.html`);
+    link.setAttribute('download', `测试报告_${dateRangeInfo.endLabel}.html`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -307,7 +343,7 @@ export default function TestReport() {
           </div>
         </div>
         <div className="text-sm text-gray-500">
-          统计时间：{dateRangeLabel.start} ~ {dateRangeLabel.end}
+          统计时间：{dateRangeInfo.startLabel} ~ {dateRangeInfo.endLabel}
         </div>
       </div>
 
@@ -318,7 +354,9 @@ export default function TestReport() {
             <FileText size={20} className="text-gray-400" />
           </div>
           <p className="text-3xl font-bold text-gray-800">{stats.totalCases}</p>
-          <p className="text-xs text-gray-400 mt-1">用例总数</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {selectedPlan === 'all' ? '全库用例总数' : `${selectedPlanInfo?.name || ''} 关联`}
+          </p>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
@@ -336,7 +374,9 @@ export default function TestReport() {
             <BarChart3 size={20} className="text-blue-500" />
           </div>
           <p className="text-3xl font-bold text-blue-600">{stats.coverageRate}%</p>
-          <p className="text-xs text-gray-400 mt-1">需求覆盖率</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {filteredExecutions.length} / {stats.totalCases} 已执行
+          </p>
         </div>
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
@@ -403,7 +443,7 @@ export default function TestReport() {
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-400">
                 <AlertCircle size={40} className="mb-2 opacity-50" />
-                <p className="text-sm">暂无执行数据</p>
+                <p className="text-sm">当前时间范围内暂无执行数据</p>
               </div>
             )}
           </div>
@@ -528,7 +568,7 @@ export default function TestReport() {
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 py-16">
                 <CheckCircle size={48} className="mb-3 text-green-300" />
-                <p>暂无失败用例，表现很好！</p>
+                <p>当前范围内暂无失败用例，表现很好！</p>
               </div>
             )}
           </div>

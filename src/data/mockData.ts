@@ -243,6 +243,15 @@ export const mockTestPlans: TestPlan[] = [
   },
 ];
 
+const genDate = (daysAgo: number, time: string): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day} ${time}`;
+};
+
 export const mockExecutions: TestExecution[] = [
   {
     id: 'e1',
@@ -255,7 +264,7 @@ export const mockExecutions: TestExecution[] = [
     actualResult: '登录成功，成功跳转到首页',
     screenshots: [],
     logs: '[INFO] 打开登录页面成功\n[INFO] 输入用户名 test001\n[INFO] 输入密码 ******\n[INFO] 点击登录按钮\n[INFO] 页面跳转成功\n[INFO] 登录验证通过',
-    executedAt: '2024-01-21 10:30:00',
+    executedAt: genDate(2, '10:30:00'),
     duration: 45,
   },
   {
@@ -269,7 +278,7 @@ export const mockExecutions: TestExecution[] = [
     actualResult: '输入错误密码后，系统没有提示错误信息，而是跳转了空白页',
     screenshots: ['/screenshot/error1.png'],
     logs: '[INFO] 打开登录页面成功\n[INFO] 输入用户名 test001\n[INFO] 输入错误密码\n[INFO] 点击登录按钮\n[ERROR] 页面跳转异常，显示空白页\n[ERROR] 控制台报错: Uncaught TypeError: Cannot read property of undefined',
-    executedAt: '2024-01-21 10:45:00',
+    executedAt: genDate(1, '10:45:00'),
     duration: 60,
   },
   {
@@ -283,7 +292,7 @@ export const mockExecutions: TestExecution[] = [
     actualResult: '用户管理页面加载失败，无法进行后续操作',
     screenshots: ['/screenshot/blocked1.png'],
     logs: '[INFO] 登录系统成功\n[INFO] 点击用户管理菜单\n[ERROR] 页面加载失败，返回500错误\n[ERROR] 后端服务异常',
-    executedAt: '2024-01-21 11:00:00',
+    executedAt: genDate(3, '11:00:00'),
     duration: 30,
   },
   {
@@ -297,8 +306,36 @@ export const mockExecutions: TestExecution[] = [
     actualResult: '正常通过',
     screenshots: [],
     logs: '[INFO] 测试通过',
-    executedAt: '2024-01-12 09:30:00',
+    executedAt: genDate(4, '09:30:00'),
     duration: 30,
+  },
+  {
+    id: 'e5',
+    planId: 'p1',
+    planName: 'V2.0.0 版本回归测试',
+    caseId: 'c7',
+    caseTitle: '订单创建流程',
+    executor: '孙测试',
+    result: 'failed',
+    actualResult: '订单提交后金额计算错误',
+    screenshots: ['/screenshot/order-error.png'],
+    logs: '[INFO] 进入购物车\n[INFO] 选择商品\n[INFO] 进入结算页\n[ERROR] 提交订单后金额显示异常\n[ERROR] 金额计算少了折扣部分',
+    executedAt: genDate(1, '14:20:00'),
+    duration: 120,
+  },
+  {
+    id: 'e6',
+    planId: 'p1',
+    planName: 'V2.0.0 版本回归测试',
+    caseId: 'c4',
+    caseTitle: '微信第三方登录',
+    executor: '李测试',
+    result: 'passed',
+    actualResult: '微信登录正常',
+    screenshots: [],
+    logs: '[INFO] 微信扫码登录成功',
+    executedAt: genDate(5, '16:00:00'),
+    duration: 50,
   },
 ];
 
