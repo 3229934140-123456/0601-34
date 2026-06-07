@@ -109,16 +109,32 @@ export default function TestExecutionPage() {
   };
 
   const selectedPlanCases = useMemo(() => {
-    if (!executionForm.planId) return testCases;
+    if (!executionForm.planId) return [];
     const plan = testPlans.find((p) => p.id === executionForm.planId);
-    if (!plan) return [];
-    return testCases.filter((c) => plan.caseIds.includes(c.id) || c.groupId.startsWith('g'));
+    if (!plan || !plan.caseIds || plan.caseIds.length === 0) return [];
+    return testCases.filter((c) => plan.caseIds.includes(c.id));
   }, [executionForm.planId, testPlans, testCases]);
 
-  const handleStartRun = () => {
+  const handlePlanChange = (planId: string) => {
+    const plan = testPlans.find((p) => p.id === planId);
+    const firstCaseId = plan && plan.caseIds && plan.caseIds.length > 0
+      ? plan.caseIds[0]
+      : '';
     setExecutionForm({
-      planId: testPlans[0]?.id || '',
-      caseId: testCases[0]?.id || '',
+      ...executionForm,
+      planId,
+      caseId: firstCaseId,
+    });
+  };
+
+  const handleStartRun = () => {
+    const firstPlan = testPlans[0];
+    const firstCaseId = firstPlan && firstPlan.caseIds && firstPlan.caseIds.length > 0
+      ? firstPlan.caseIds[0]
+      : '';
+    setExecutionForm({
+      planId: firstPlan?.id || '',
+      caseId: firstCaseId,
       result: 'passed',
       actualResult: '',
       logs: '',
@@ -521,9 +537,7 @@ ${selectedExecution.logs || '无'}
                   </label>
                   <select
                     value={executionForm.planId}
-                    onChange={(e) =>
-                      setExecutionForm({ ...executionForm, planId: e.target.value })
-                    }
+                    onChange={(e) => handlePlanChange(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">请选择计划</option>

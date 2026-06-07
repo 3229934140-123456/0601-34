@@ -16,7 +16,7 @@ import {
   mockTestCases,
   mockTestGroups,
   mockTestPlans,
-  mockTestExecutions,
+  mockExecutions,
   mockDefects,
   mockTestAccounts,
   mockParameterGroups,
@@ -80,7 +80,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [testCases, setTestCases] = useState<TestCase[]>(mockTestCases);
   const [testGroups] = useState<TestGroup[]>(mockTestGroups);
   const [testPlans, setTestPlans] = useState<TestPlan[]>(mockTestPlans);
-  const [testExecutions, setTestExecutions] = useState<TestExecution[]>(mockTestExecutions);
+  const [testExecutions, setTestExecutions] = useState<TestExecution[]>(mockExecutions);
   const [defects, setDefects] = useState<Defect[]>(mockDefects);
   const [testAccounts, setTestAccounts] = useState<TestAccount[]>(mockTestAccounts);
   const [parameterGroups, setParameterGroups] = useState<ParameterGroup[]>(mockParameterGroups);
@@ -292,6 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const newPlan: TestPlan = {
         ...plan,
         id: generateId(),
+        createdAt: new Date().toLocaleString('zh-CN'),
       };
       setTestPlans((prev) => [...prev, newPlan]);
       return newPlan;
