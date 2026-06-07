@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -19,23 +19,66 @@ import {
   Send,
   Bug,
 } from 'lucide-react';
-import { mockDefects } from '../data/mockData';
+import { useApp } from '../context/AppContext';
 import { Defect } from '../types';
 
+interface NewDefectForm {
+  title: string;
+  description: string;
+  severity: Defect['severity'];
+  priority: Defect['priority'];
+  assignee: string;
+}
+
 export default function DefectManagement() {
+  const {
+    defects,
+    addDefect,
+    addDefectComment,
+    changeDefectStatus,
+    updateDefect,
+  } = useApp();
+
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
-  const [selectedDefect, setSelectedDefect] = useState<Defect | null>(null);
+  const [selectedDefectId, setSelectedDefectId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newComment, setNewComment] = useState('');
-
-  const filteredDefects = mockDefects.filter((defect) => {
-    const matchSearch = defect.title.toLowerCase().includes(searchText.toLowerCase());
-    const matchStatus = statusFilter === 'all' || defect.status === statusFilter;
-    const matchSeverity = severityFilter === 'all' || defect.severity === severityFilter;
-    return matchSearch && matchStatus && matchSeverity;
+  const [newDefect, setNewDefect] = useState<NewDefectForm>({
+    title: '',
+    description: '',
+    severity: 'major',
+    priority: 'medium',
+    assignee: '陈开发',
   });
+
+  const selectedDefect = useMemo(
+    () => defects.find((d) => d.id === selectedDefectId) || null,
+    [defects, selectedDefectId]
+  );
+
+  useEffect(() => {
+    if (selectedDefectId && !defects.find((d) => d.id === selectedDefectId)) {
+      setSelectedDefectId(null);
+    }
+  }, [defects, selectedDefectId]);
+
+  const filteredDefects = useMemo(() => {
+    return defects.filter((defect) => {
+      const matchSearch = defect.title.toLowerCase().includes(searchText.toLowerCase());
+      const matchStatus = statusFilter === 'all' || defect.status === statusFilter;
+      const matchSeverity = severityFilter === 'all' || defect.severity === severityFilter;
+      return matchSearch && matchStatus && matchSeverity;
+    });
+  }, [defects, searchText, statusFilter, severityFilter]);
+
+  const stats = useMemo(() => ({
+    total: defects.length,
+    open: defects.filter((d) => d.status === 'open').length,
+    inProgress: defects.filter((d) => d.status === 'in_progress').length,
+    resolved: defects.filter((d) => d.status === 'resolved').length,
+  }), [defects]);
 
   const getStatusBadge = (status: Defect['status']) => {
     const config = {
@@ -47,7 +90,9 @@ export default function DefectManagement() {
     };
     const { label, class: cls, icon: Icon } = config[status];
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}
+      >
         <Icon size={12} />
         {label}
       </span>
@@ -75,15 +120,58 @@ export default function DefectManagement() {
     return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>;
   };
 
-  const stats = {
-    total: mockDefects.length,
-    open: mockDefects.filter((d) => d.status === 'open').length,
-    inProgress: mockDefects.filter((d) => d.status === 'in_progress').length,
-    resolved: mockDefects.filter((d) => d.status === 'resolved').length,
+  const handleCreateDefect = () => {
+    if (!newDefect.title.trim()) {
+      alert('请输入缺陷标题');
+      return;
+    }
+    const created = addDefect({
+      title: newDefect.title,
+      description: newDefect.description,
+      severity: newDefect.severity,
+      priority: newDefect.priority,
+      assignee: newDefect.assignee,
+      reporter: '张经理',
+      status: 'open',
+    });
+    setSelectedDefectId(created.id);
+    setIsCreateModalOpen(false);
+    setNewDefect({
+      title: '',
+      description: '',
+      severity: 'major',
+      priority: 'medium',
+      assignee: '陈开发',
+    });
   };
 
-  const handleQuickCreate = () => {
-    setIsCreateModalOpen(true);
+  const handleSendComment = () => {
+    if (!newComment.trim() || !selectedDefect) return;
+    addDefectComment(selectedDefect.id, {
+      author: '张经理',
+      content: newComment.trim(),
+    });
+    setNewComment('');
+  };
+
+  const handleStartProcess = () => {
+    if (!selectedDefect) return;
+    changeDefectStatus(selectedDefect.id, 'in_progress');
+  };
+
+  const handleResolve = () => {
+    if (!selectedDefect) return;
+    changeDefectStatus(selectedDefect.id, 'resolved');
+  };
+
+  const handleVerifyPass = () => {
+    if (!selectedDefect) return;
+    changeDefectStatus(selectedDefect.id, 'closed');
+  };
+
+  const handleReopen = () => {
+    if (!selectedDefect) return;
+    changeDefectStatus(selectedDefect.id, 'reopened');
   };
 
   return (
@@ -91,7 +179,7 @@ export default function DefectManagement() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold text-gray-800">缺陷管理</h1>
         <button
-          onClick={handleQuickCreate}
+          onClick={() => setIsCreateModalOpen(true)}
           className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
         >
           <Plus size={16} />
@@ -150,7 +238,10 @@ export default function DefectManagement() {
         <div className="flex-1 bg-white rounded-lg border border-gray-200 flex flex-col">
           <div className="p-4 border-b border-gray-100 flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 type="text"
                 placeholder="搜索缺陷标题..."
@@ -222,9 +313,9 @@ export default function DefectManagement() {
                   <tr
                     key={defect.id}
                     className={`hover:bg-gray-50 cursor-pointer ${
-                      selectedDefect?.id === defect.id ? 'bg-blue-50' : ''
+                      selectedDefectId === defect.id ? 'bg-blue-50' : ''
                     }`}
-                    onClick={() => setSelectedDefect(defect)}
+                    onClick={() => setSelectedDefectId(defect.id)}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -243,7 +334,7 @@ export default function DefectManagement() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedDefect(defect);
+                            setSelectedDefectId(defect.id);
                           }}
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                           title="查看"
@@ -263,6 +354,12 @@ export default function DefectManagement() {
                 ))}
               </tbody>
             </table>
+            {filteredDefects.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                <Bug size={48} className="mb-3 opacity-50" />
+                <p>暂无匹配的缺陷</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -271,7 +368,7 @@ export default function DefectManagement() {
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-medium text-gray-800">缺陷详情</h3>
               <button
-                onClick={() => setSelectedDefect(null)}
+                onClick={() => setSelectedDefectId(null)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
                 <X size={18} className="text-gray-400" />
@@ -329,7 +426,7 @@ export default function DefectManagement() {
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-2">缺陷描述</h5>
                 <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 whitespace-pre-wrap">
-                  {selectedDefect.description}
+                  {selectedDefect.description || '无'}
                 </div>
               </div>
 
@@ -363,18 +460,12 @@ export default function DefectManagement() {
                   className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   onKeyPress={(e) => {
                     if (e.key === 'Enter' && newComment.trim()) {
-                      alert('评论已发送');
-                      setNewComment('');
+                      handleSendComment();
                     }
                   }}
                 />
                 <button
-                  onClick={() => {
-                    if (newComment.trim()) {
-                      alert('评论已发送');
-                      setNewComment('');
-                    }
-                  }}
+                  onClick={handleSendComment}
                   className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Send size={16} />
@@ -384,24 +475,44 @@ export default function DefectManagement() {
 
             <div className="p-4 border-t border-gray-100 flex gap-2">
               {(selectedDefect.status === 'open' || selectedDefect.status === 'reopened') && (
-                <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
+                <button
+                  onClick={handleStartProcess}
+                  className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                >
                   开始处理
                 </button>
               )}
               {selectedDefect.status === 'in_progress' && (
-                <button className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors">
+                <button
+                  onClick={handleResolve}
+                  className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
+                >
                   标记解决
                 </button>
               )}
               {selectedDefect.status === 'resolved' && (
                 <>
-                  <button className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors">
+                  <button
+                    onClick={handleVerifyPass}
+                    className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
+                  >
                     验证通过
                   </button>
-                  <button className="flex-1 px-3 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 transition-colors">
+                  <button
+                    onClick={handleReopen}
+                    className="flex-1 px-3 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 transition-colors"
+                  >
                     重新打开
                   </button>
                 </>
+              )}
+              {selectedDefect.status === 'closed' && (
+                <button
+                  onClick={handleReopen}
+                  className="flex-1 px-3 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 transition-colors"
+                >
+                  重新打开
+                </button>
               )}
             </div>
           </div>
@@ -426,13 +537,26 @@ export default function DefectManagement() {
                 <input
                   type="text"
                   placeholder="请输入缺陷标题"
+                  value={newDefect.title}
+                  onChange={(e) =>
+                    setNewDefect({ ...newDefect, title: e.target.value })
+                  }
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">严重程度</label>
-                  <select className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                  <select
+                    value={newDefect.severity}
+                    onChange={(e) =>
+                      setNewDefect({
+                        ...newDefect,
+                        severity: e.target.value as Defect['severity'],
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
                     <option value="critical">致命</option>
                     <option value="major">严重</option>
                     <option value="minor">一般</option>
@@ -441,7 +565,16 @@ export default function DefectManagement() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">优先级</label>
-                  <select className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                  <select
+                    value={newDefect.priority}
+                    onChange={(e) =>
+                      setNewDefect({
+                        ...newDefect,
+                        priority: e.target.value as Defect['priority'],
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
                     <option value="high">高</option>
                     <option value="medium">中</option>
                     <option value="low">低</option>
@@ -450,9 +583,17 @@ export default function DefectManagement() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">处理人</label>
-                <select className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                <select
+                  value={newDefect.assignee}
+                  onChange={(e) =>
+                    setNewDefect({ ...newDefect, assignee: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
                   <option>陈开发</option>
                   <option>刘后端</option>
+                  <option>赵前端</option>
+                  <option>王测试</option>
                 </select>
               </div>
               <div>
@@ -460,6 +601,10 @@ export default function DefectManagement() {
                 <textarea
                   rows={5}
                   placeholder="请详细描述缺陷现象、复现步骤等"
+                  value={newDefect.description}
+                  onChange={(e) =>
+                    setNewDefect({ ...newDefect, description: e.target.value })
+                  }
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
                 />
               </div>
@@ -472,10 +617,7 @@ export default function DefectManagement() {
                 取消
               </button>
               <button
-                onClick={() => {
-                  setIsCreateModalOpen(false);
-                  alert('缺陷创建成功');
-                }}
+                onClick={handleCreateDefect}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors"
               >
                 创建

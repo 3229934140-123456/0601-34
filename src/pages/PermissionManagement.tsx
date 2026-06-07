@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -16,25 +16,52 @@ import {
   XCircle,
   ChevronRight,
   ChevronDown,
+  Power,
 } from 'lucide-react';
-import { mockProjectMembers, mockRolePermissions } from '../data/mockData';
+import { useApp } from '../context/AppContext';
 import { ProjectMember, RoleType } from '../types';
 
 export default function PermissionManagement() {
+  const {
+    projectMembers,
+    rolePermissions,
+    addProjectMember,
+    changeMemberRole,
+    toggleMemberStatus,
+  } = useApp();
+
   const [activeTab, setActiveTab] = useState<'members' | 'roles'>('members');
   const [searchText, setSearchText] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [selectedMember, setSelectedMember] = useState<ProjectMember | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [expandedRoles, setExpandedRoles] = useState<string[]>(['admin', 'tester']);
-
-  const filteredMembers = mockProjectMembers.filter((member) => {
-    const matchSearch =
-      member.name.toLowerCase().includes(searchText.toLowerCase()) ||
-      member.email.toLowerCase().includes(searchText.toLowerCase());
-    const matchRole = roleFilter === 'all' || member.role === roleFilter;
-    return matchSearch && matchRole;
+  const [newMemberForm, setNewMemberForm] = useState({
+    name: '',
+    email: '',
+    role: 'tester' as RoleType,
   });
+
+  const filteredMembers = useMemo(() => {
+    return projectMembers.filter((member) => {
+      const matchSearch =
+        member.name.toLowerCase().includes(searchText.toLowerCase()) ||
+        member.email.toLowerCase().includes(searchText.toLowerCase());
+      const matchRole = roleFilter === 'all' || member.role === roleFilter;
+      return matchSearch && matchRole;
+    });
+  }, [projectMembers, searchText, roleFilter]);
+
+  const selectedMember = useMemo(() => {
+    if (!selectedMemberId) return null;
+    return projectMembers.find((m) => m.id === selectedMemberId) || null;
+  }, [selectedMemberId, projectMembers]);
+
+  useEffect(() => {
+    if (selectedMemberId && !projectMembers.find((m) => m.id === selectedMemberId)) {
+      setSelectedMemberId(null);
+    }
+  }, [projectMembers, selectedMemberId]);
 
   const getRoleLabel = (role: RoleType) => {
     const labels = {
@@ -62,19 +89,41 @@ export default function PermissionManagement() {
     );
   };
 
-  const handleChangeRole = (memberId: string, newRole: RoleType) => {
-    alert(`已将用户角色修改为：${getRoleLabel(newRole)}`);
+  const handleAddMember = () => {
+    if (!newMemberForm.name.trim()) {
+      alert('请输入成员姓名');
+      return;
+    }
+    if (!newMemberForm.email.trim()) {
+      alert('请输入邮箱');
+      return;
+    }
+
+    const newMember = addProjectMember({
+      name: newMemberForm.name,
+      email: newMemberForm.email,
+      role: newMemberForm.role,
+      status: 'active',
+      avatar: '',
+    });
+
+    setSelectedMemberId(newMember.id);
+    setIsAddMemberModalOpen(false);
+    setNewMemberForm({ name: '', email: '', role: 'tester' });
   };
 
-  const handleDisableMember = (memberId: string) => {
-    alert('用户已禁用');
-  };
+  const stats = useMemo(
+    () => ({
+      total: projectMembers.length,
+      active: projectMembers.filter((m) => m.status === 'active').length,
+      admin: projectMembers.filter((m) => m.role === 'admin').length,
+      tester: projectMembers.filter((m) => m.role === 'tester').length,
+    }),
+    [projectMembers]
+  );
 
-  const stats = {
-    total: mockProjectMembers.length,
-    active: mockProjectMembers.filter((m) => m.status === 'active').length,
-    admin: mockProjectMembers.filter((m) => m.role === 'admin').length,
-    tester: mockProjectMembers.filter((m) => m.role === 'tester').length,
+  const getMemberCountForRole = (role: string) => {
+    return projectMembers.filter((m) => m.role === role).length;
   };
 
   return (
@@ -169,7 +218,10 @@ export default function PermissionManagement() {
           <>
             <div className="p-4 border-b border-gray-100 flex items-center gap-4">
               <div className="relative flex-1 max-w-md">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                />
                 <input
                   type="text"
                   placeholder="搜索成员姓名、邮箱..."
@@ -219,8 +271,10 @@ export default function PermissionManagement() {
                   {filteredMembers.map((member) => (
                     <tr
                       key={member.id}
-                      className="hover:bg-gray-50 cursor-pointer"
-                      onClick={() => setSelectedMember(member)}
+                      className={`hover:bg-gray-50 cursor-pointer ${
+                        selectedMemberId === member.id ? 'bg-blue-50' : ''
+                      }`}
+                      onClick={() => setSelectedMemberId(member.id)}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -230,8 +284,12 @@ export default function PermissionManagement() {
                             </span>
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-800">{member.name}</p>
-                            <p className="text-xs text-gray-500">{getRoleLabel(member.role)}</p>
+                            <p className="text-sm font-medium text-gray-800">
+                              {member.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {getRoleLabel(member.role)}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -245,7 +303,9 @@ export default function PermissionManagement() {
                           {getRoleLabel(member.role)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{member.joinDate}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">
+                        {member.joinDate}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -267,7 +327,7 @@ export default function PermissionManagement() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedMember(member);
+                              setSelectedMemberId(member.id);
                             }}
                             className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                             title="查看"
@@ -276,11 +336,11 @@ export default function PermissionManagement() {
                           </button>
                           <select
                             onClick={(e) => e.stopPropagation()}
-                            onChange={(e) =>
-                              handleChangeRole(member.id, e.target.value as RoleType)
-                            }
+                            onChange={(e) => {
+                              changeMemberRole(member.id, e.target.value as RoleType);
+                            }}
                             className="ml-1 px-2 py-1 border border-gray-200 rounded text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            defaultValue={member.role}
+                            value={member.role}
                           >
                             <option value="admin">管理员</option>
                             <option value="tester">测试工程师</option>
@@ -290,16 +350,16 @@ export default function PermissionManagement() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDisableMember(member.id);
+                              toggleMemberStatus(member.id);
                             }}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            className={`p-1.5 rounded transition-colors ${
+                              member.status === 'active'
+                                ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50'
+                                : 'text-green-400 hover:text-green-600 hover:bg-green-50'
+                            }`}
                             title={member.status === 'active' ? '禁用' : '启用'}
                           >
-                            {member.status === 'active' ? (
-                              <XCircle size={14} />
-                            ) : (
-                              <CheckCircle size={14} />
-                            )}
+                            <Power size={14} />
                           </button>
                         </div>
                       </td>
@@ -307,6 +367,12 @@ export default function PermissionManagement() {
                   ))}
                 </tbody>
               </table>
+              {filteredMembers.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <Users size={48} className="mb-3 opacity-50" />
+                  <p>暂无匹配的成员</p>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -314,7 +380,7 @@ export default function PermissionManagement() {
         {activeTab === 'roles' && (
           <div className="flex-1 overflow-auto p-4">
             <div className="space-y-3">
-              {mockRolePermissions.map((rolePerm) => {
+              {rolePermissions.map((rolePerm) => {
                 const isExpanded = expandedRoles.includes(rolePerm.role);
                 return (
                   <div
@@ -344,10 +410,7 @@ export default function PermissionManagement() {
                           rolePerm.role
                         )}`}
                       >
-                        {
-                          mockProjectMembers.filter((m) => m.role === rolePerm.role).length
-                        }{' '}
-                        人
+                        {getMemberCountForRole(rolePerm.role)} 人
                       </span>
                     </div>
 
@@ -403,7 +466,7 @@ export default function PermissionManagement() {
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">成员详情</h3>
               <button
-                onClick={() => setSelectedMember(null)}
+                onClick={() => setSelectedMemberId(null)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
                 <X size={20} className="text-gray-400" />
@@ -417,7 +480,9 @@ export default function PermissionManagement() {
                   </span>
                 </div>
                 <div>
-                  <h4 className="font-medium text-gray-800 text-lg">{selectedMember.name}</h4>
+                  <h4 className="font-medium text-gray-800 text-lg">
+                    {selectedMember.name}
+                  </h4>
                   <span
                     className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${getRoleColor(
                       selectedMember.role
@@ -456,7 +521,7 @@ export default function PermissionManagement() {
                     <strong>{getRoleLabel(selectedMember.role)}</strong> 拥有以下权限：
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {mockRolePermissions
+                    {rolePermissions
                       .find((r) => r.role === selectedMember.role)
                       ?.permissions.slice(0, 8)
                       .map((perm) => (
@@ -476,13 +541,22 @@ export default function PermissionManagement() {
             </div>
             <div className="p-4 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setSelectedMember(null)}
+                onClick={() => setSelectedMemberId(null)}
                 className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-colors"
               >
                 关闭
               </button>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors">
-                编辑角色
+              <button
+                onClick={() => {
+                  toggleMemberStatus(selectedMember.id);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                  selectedMember.status === 'active'
+                    ? 'bg-orange-500 text-white hover:bg-orange-600'
+                    : 'bg-green-500 text-white hover:bg-green-600'
+                }`}
+              >
+                {selectedMember.status === 'active' ? '禁用成员' : '启用成员'}
               </button>
             </div>
           </div>
@@ -503,10 +577,16 @@ export default function PermissionManagement() {
             </div>
             <div className="flex-1 overflow-auto p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">成员姓名</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  成员姓名
+                </label>
                 <input
                   type="text"
                   placeholder="请输入姓名"
+                  value={newMemberForm.name}
+                  onChange={(e) =>
+                    setNewMemberForm({ ...newMemberForm, name: e.target.value })
+                  }
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -515,12 +595,25 @@ export default function PermissionManagement() {
                 <input
                   type="email"
                   placeholder="请输入邮箱"
+                  value={newMemberForm.email}
+                  onChange={(e) =>
+                    setNewMemberForm({ ...newMemberForm, email: e.target.value })
+                  }
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">角色</label>
-                <select className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <select
+                  value={newMemberForm.role}
+                  onChange={(e) =>
+                    setNewMemberForm({
+                      ...newMemberForm,
+                      role: e.target.value as RoleType,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
                   <option value="admin">管理员</option>
                   <option value="tester">测试工程师</option>
                   <option value="developer">开发人员</option>
@@ -536,10 +629,7 @@ export default function PermissionManagement() {
                 取消
               </button>
               <button
-                onClick={() => {
-                  setIsAddMemberModalOpen(false);
-                  alert('成员添加成功');
-                }}
+                onClick={handleAddMember}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
               >
                 添加

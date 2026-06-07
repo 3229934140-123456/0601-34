@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -20,18 +20,41 @@ import {
   X,
   GripVertical,
 } from 'lucide-react';
-import { mockTestCases, mockTestGroups } from '../data/mockData';
+import { useApp } from '../context/AppContext';
 import { TestCase, TestStep, TestGroup } from '../types';
 
 export default function TestCaseLibrary() {
+  const {
+    testCases,
+    testGroups,
+    addTestCase,
+    updateTestCase,
+    deleteTestCase,
+    submitTestCaseReview,
+    approveTestCase,
+    rejectTestCase,
+  } = useApp();
+
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['g1', 'g2', 'g3']);
   const [searchText, setSearchText] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCase, setEditingCase] = useState<TestCase | null>(null);
+  const [isNewCase, setIsNewCase] = useState(false);
+
+  const selectedCase = useMemo(
+    () => testCases.find((c) => c.id === selectedCaseId) || null,
+    [testCases, selectedCaseId]
+  );
+
+  useEffect(() => {
+    if (selectedCaseId && !testCases.find((c) => c.id === selectedCaseId)) {
+      setSelectedCaseId(null);
+    }
+  }, [testCases, selectedCaseId]);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups((prev) =>
@@ -39,15 +62,18 @@ export default function TestCaseLibrary() {
     );
   };
 
-  const filteredCases = mockTestCases.filter((c) => {
-    const matchSearch =
-      c.title.toLowerCase().includes(searchText.toLowerCase()) ||
-      c.tags.some((t) => t.toLowerCase().includes(searchText.toLowerCase()));
-    const matchGroup = !selectedGroup || c.groupId === selectedGroup || c.groupId.startsWith(selectedGroup + '-');
-    const matchPriority = priorityFilter === 'all' || c.priority === priorityFilter;
-    const matchStatus = statusFilter === 'all' || c.status === statusFilter;
-    return matchSearch && matchGroup && matchPriority && matchStatus;
-  });
+  const filteredCases = useMemo(() => {
+    return testCases.filter((c) => {
+      const matchSearch =
+        c.title.toLowerCase().includes(searchText.toLowerCase()) ||
+        c.tags.some((t) => t.toLowerCase().includes(searchText.toLowerCase()));
+      const matchGroup =
+        !selectedGroup || c.groupId === selectedGroup || c.groupId.startsWith(selectedGroup + '-');
+      const matchPriority = priorityFilter === 'all' || c.priority === priorityFilter;
+      const matchStatus = statusFilter === 'all' || c.status === statusFilter;
+      return matchSearch && matchGroup && matchPriority && matchStatus;
+    });
+  }, [testCases, searchText, selectedGroup, priorityFilter, statusFilter]);
 
   const getStatusBadge = (status: TestCase['status']) => {
     const config = {
@@ -58,7 +84,9 @@ export default function TestCaseLibrary() {
     };
     const { label, class: cls, icon: Icon } = config[status];
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}
+      >
         <Icon size={12} />
         {label}
       </span>
@@ -72,11 +100,21 @@ export default function TestCaseLibrary() {
       low: { label: '低', class: 'bg-green-100 text-green-600' },
     };
     const { label, class: cls } = config[priority];
-    return (
-      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-        {label}
-      </span>
-    );
+    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>;
+  };
+
+  const getGroupName = (groupId: string) => {
+    const findGroup = (groups: TestGroup[]): string | null => {
+      for (const g of groups) {
+        if (g.id === groupId) return g.name;
+        if (g.children) {
+          const found = findGroup(g.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return findGroup(testGroups) || '未分组';
   };
 
   const renderGroupTree = (groups: TestGroup[], level = 0) => {
@@ -106,7 +144,11 @@ export default function TestCaseLibrary() {
               </button>
             )}
             {!hasChildren && <span className="w-5" />}
-            {isExpanded ? <FolderOpen size={16} className="text-yellow-500" /> : <Folder size={16} className="text-yellow-500" />}
+            {isExpanded ? (
+              <FolderOpen size={16} className="text-yellow-500" />
+            ) : (
+              <Folder size={16} className="text-yellow-500" />
+            )}
             <span className="flex-1 text-sm truncate">{group.name}</span>
             <span className="text-xs text-gray-400">{group.caseCount}</span>
           </div>
@@ -118,31 +160,33 @@ export default function TestCaseLibrary() {
 
   const handleAddCase = () => {
     const newCase: TestCase = {
-      id: `c${Date.now()}`,
+      id: '',
       title: '',
       groupId: selectedGroup || 'g1',
-      groupName: '',
+      groupName: getGroupName(selectedGroup || 'g1'),
       preconditions: '',
-      steps: [{ id: `s${Date.now()}`, order: 1, action: '', expected: '' }],
+      steps: [{ id: 's1', order: 1, action: '', expected: '' }],
       expectedResult: '',
       tags: [],
       priority: 'medium',
       status: 'draft',
       createdBy: '张经理',
-      createdAt: new Date().toLocaleString(),
-      updatedAt: new Date().toLocaleString(),
+      createdAt: '',
+      updatedAt: '',
     };
     setEditingCase(newCase);
+    setIsNewCase(true);
     setIsEditModalOpen(true);
   };
 
   const handleEditCase = (testCase: TestCase) => {
     setEditingCase({ ...testCase, steps: [...testCase.steps] });
+    setIsNewCase(false);
     setIsEditModalOpen(true);
   };
 
   const handleViewCase = (testCase: TestCase) => {
-    setSelectedCase(testCase);
+    setSelectedCaseId(testCase.id);
   };
 
   const addStep = () => {
@@ -160,7 +204,9 @@ export default function TestCaseLibrary() {
     if (!editingCase || editingCase.steps.length <= 1) return;
     setEditingCase({
       ...editingCase,
-      steps: editingCase.steps.filter((s) => s.id !== stepId).map((s, i) => ({ ...s, order: i + 1 })),
+      steps: editingCase.steps
+        .filter((s) => s.id !== stepId)
+        .map((s, i) => ({ ...s, order: i + 1 })),
     });
   };
 
@@ -168,20 +214,71 @@ export default function TestCaseLibrary() {
     if (!editingCase) return;
     setEditingCase({
       ...editingCase,
-      steps: editingCase.steps.map((s) => (s.id === stepId ? { ...s, [field]: value } : s)),
+      steps: editingCase.steps.map((s) =>
+        s.id === stepId ? { ...s, [field]: value } : s
+      ),
     });
   };
 
-  const handleSubmitReview = (testCase: TestCase) => {
-    alert('已提交评审');
+  const handleSaveCase = () => {
+    if (!editingCase || !editingCase.title.trim()) {
+      alert('请输入用例标题');
+      return;
+    }
+
+    const groupName = getGroupName(editingCase.groupId);
+
+    if (isNewCase) {
+      const newCase = addTestCase({
+        title: editingCase.title,
+        groupId: editingCase.groupId,
+        groupName: groupName,
+        preconditions: editingCase.preconditions,
+        steps: editingCase.steps,
+        expectedResult: editingCase.expectedResult,
+        tags: editingCase.tags,
+        priority: editingCase.priority,
+        status: 'draft',
+        createdBy: '张经理',
+      });
+      setSelectedCaseId(newCase.id);
+    } else {
+      updateTestCase(editingCase.id, {
+        title: editingCase.title,
+        groupId: editingCase.groupId,
+        groupName: groupName,
+        preconditions: editingCase.preconditions,
+        steps: editingCase.steps,
+        expectedResult: editingCase.expectedResult,
+        tags: editingCase.tags,
+        priority: editingCase.priority,
+      });
+    }
+    setIsEditModalOpen(false);
+    setEditingCase(null);
   };
 
-  const handleApprove = (testCase: TestCase) => {
-    alert('用例已通过评审');
+  const handleDeleteCase = (testCase: TestCase) => {
+    if (!confirm(`确定要删除用例"${testCase.title}"吗？`)) return;
+    deleteTestCase(testCase.id);
+    if (selectedCaseId === testCase.id) {
+      setSelectedCaseId(null);
+    }
   };
 
-  const handleReject = (testCase: TestCase) => {
-    alert('用例已驳回');
+  const handleSubmitReview = () => {
+    if (!selectedCase) return;
+    submitTestCaseReview(selectedCase.id);
+  };
+
+  const handleApprove = () => {
+    if (!selectedCase) return;
+    approveTestCase(selectedCase.id, '李主管');
+  };
+
+  const handleReject = () => {
+    if (!selectedCase) return;
+    rejectTestCase(selectedCase.id, '李主管');
   };
 
   return (
@@ -204,19 +301,24 @@ export default function TestCaseLibrary() {
             <button
               onClick={() => setSelectedGroup(null)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
-                !selectedGroup ? 'bg-blue-50 text-blue-600 font-medium' : 'hover:bg-gray-50 text-gray-600'
+                !selectedGroup
+                  ? 'bg-blue-50 text-blue-600 font-medium'
+                  : 'hover:bg-gray-50 text-gray-600'
               }`}
             >
               全部用例
             </button>
           </div>
-          <div className="flex-1 overflow-auto p-2">{renderGroupTree(mockTestGroups)}</div>
+          <div className="flex-1 overflow-auto p-2">{renderGroupTree(testGroups)}</div>
         </div>
 
         <div className="flex-1 bg-white rounded-lg border border-gray-200 flex flex-col">
           <div className="p-4 border-b border-gray-100 flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 type="text"
                 placeholder="搜索用例标题、标签..."
@@ -279,7 +381,9 @@ export default function TestCaseLibrary() {
                 {filteredCases.map((testCase) => (
                   <tr
                     key={testCase.id}
-                    className="hover:bg-gray-50 cursor-pointer"
+                    className={`hover:bg-gray-50 cursor-pointer ${
+                      selectedCaseId === testCase.id ? 'bg-blue-50' : ''
+                    }`}
                     onClick={() => handleViewCase(testCase)}
                   >
                     <td className="px-4 py-3">
@@ -326,7 +430,10 @@ export default function TestCaseLibrary() {
                           <Edit2 size={14} />
                         </button>
                         <button
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCase(testCase);
+                          }}
                           className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                           title="删除"
                         >
@@ -352,7 +459,7 @@ export default function TestCaseLibrary() {
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-medium text-gray-800">用例详情</h3>
               <button
-                onClick={() => setSelectedCase(null)}
+                onClick={() => setSelectedCaseId(null)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
                 <X size={18} className="text-gray-400" />
@@ -368,15 +475,19 @@ export default function TestCaseLibrary() {
               </div>
 
               <div className="flex gap-2 flex-wrap">
-                {selectedCase.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs"
-                  >
-                    <Tag size={12} />
-                    {tag}
-                  </span>
-                ))}
+                {selectedCase.tags.length > 0 ? (
+                  selectedCase.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs"
+                    >
+                      <Tag size={12} />
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-gray-400">暂无标签</span>
+                )}
               </div>
 
               <div>
@@ -402,8 +513,8 @@ export default function TestCaseLibrary() {
                           {step.order}
                         </span>
                         <div className="flex-1">
-                          <p className="text-sm text-gray-800 mb-1">{step.action}</p>
-                          <p className="text-xs text-gray-500">预期：{step.expected}</p>
+                          <p className="text-sm text-gray-800 mb-1">{step.action || '无操作描述'}</p>
+                          <p className="text-xs text-gray-500">预期：{step.expected || '无'}</p>
                         </div>
                       </div>
                     </div>
@@ -414,7 +525,7 @@ export default function TestCaseLibrary() {
               <div>
                 <h5 className="text-sm font-medium text-gray-700 mb-2">预期结果</h5>
                 <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
-                  {selectedCase.expectedResult}
+                  {selectedCase.expectedResult || '无'}
                 </div>
               </div>
 
@@ -440,7 +551,7 @@ export default function TestCaseLibrary() {
             <div className="p-4 border-t border-gray-100 flex gap-2">
               {selectedCase.status === 'draft' && (
                 <button
-                  onClick={() => handleSubmitReview(selectedCase)}
+                  onClick={handleSubmitReview}
                   className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
                 >
                   提交评审
@@ -449,18 +560,26 @@ export default function TestCaseLibrary() {
               {selectedCase.status === 'reviewing' && (
                 <>
                   <button
-                    onClick={() => handleApprove(selectedCase)}
+                    onClick={handleApprove}
                     className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
                   >
                     通过
                   </button>
                   <button
-                    onClick={() => handleReject(selectedCase)}
+                    onClick={handleReject}
                     className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors"
                   >
                     驳回
                   </button>
                 </>
+              )}
+              {(selectedCase.status === 'approved' || selectedCase.status === 'rejected') && (
+                <button
+                  onClick={handleSubmitReview}
+                  className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                >
+                  重新评审
+                </button>
               )}
               <button
                 onClick={() => handleEditCase(selectedCase)}
@@ -478,10 +597,13 @@ export default function TestCaseLibrary() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">
-                {editingCase.title ? '编辑用例' : '新建用例'}
+                {isNewCase ? '新建用例' : '编辑用例'}
               </h3>
               <button
-                onClick={() => setIsEditModalOpen(false)}
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setEditingCase(null);
+                }}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
                 <X size={20} className="text-gray-400" />
@@ -494,7 +616,9 @@ export default function TestCaseLibrary() {
                 <input
                   type="text"
                   value={editingCase.title}
-                  onChange={(e) => setEditingCase({ ...editingCase, title: e.target.value })}
+                  onChange={(e) =>
+                    setEditingCase({ ...editingCase, title: e.target.value })
+                  }
                   placeholder="请输入用例标题"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -522,16 +646,19 @@ export default function TestCaseLibrary() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">所属分组</label>
                   <select
                     value={editingCase.groupId}
-                    onChange={(e) => setEditingCase({ ...editingCase, groupId: e.target.value })}
+                    onChange={(e) =>
+                      setEditingCase({ ...editingCase, groupId: e.target.value })
+                    }
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {mockTestGroups.flatMap((g) => [
+                    {testGroups.flatMap((g) => [
                       <option key={g.id} value={g.id}>
                         {g.name}
                       </option>,
                       ...(g.children || []).map((child) => (
                         <option key={child.id} value={child.id}>
-                          {' 　'}{child.name}
+                          {' 　'}
+                          {child.name}
                         </option>
                       )),
                     ])}
@@ -562,7 +689,9 @@ export default function TestCaseLibrary() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">前置条件</label>
                 <textarea
                   value={editingCase.preconditions}
-                  onChange={(e) => setEditingCase({ ...editingCase, preconditions: e.target.value })}
+                  onChange={(e) =>
+                    setEditingCase({ ...editingCase, preconditions: e.target.value })
+                  }
                   placeholder="请输入前置条件"
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
@@ -582,7 +711,10 @@ export default function TestCaseLibrary() {
                 </div>
                 <div className="space-y-2">
                   {editingCase.steps.map((step) => (
-                    <div key={step.id} className="flex gap-2 items-start bg-gray-50 p-3 rounded-lg">
+                    <div
+                      key={step.id}
+                      className="flex gap-2 items-start bg-gray-50 p-3 rounded-lg"
+                    >
                       <GripVertical size={16} className="text-gray-400 mt-2 cursor-move" />
                       <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full text-xs flex items-center justify-center mt-1">
                         {step.order}
@@ -618,7 +750,9 @@ export default function TestCaseLibrary() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">预期结果</label>
                 <textarea
                   value={editingCase.expectedResult}
-                  onChange={(e) => setEditingCase({ ...editingCase, expectedResult: e.target.value })}
+                  onChange={(e) =>
+                    setEditingCase({ ...editingCase, expectedResult: e.target.value })
+                  }
                   placeholder="请输入预期结果"
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
@@ -628,16 +762,16 @@ export default function TestCaseLibrary() {
 
             <div className="p-4 border-t border-gray-100 flex justify-end gap-3">
               <button
-                onClick={() => setIsEditModalOpen(false)}
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setEditingCase(null);
+                }}
                 className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-colors"
               >
                 取消
               </button>
               <button
-                onClick={() => {
-                  setIsEditModalOpen(false);
-                  alert('保存成功');
-                }}
+                onClick={handleSaveCase}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
               >
                 保存

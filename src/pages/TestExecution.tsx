@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Play,
   Search,
@@ -14,23 +14,74 @@ import {
   Calendar,
   X,
   ChevronRight,
+  Bug,
+  Save,
 } from 'lucide-react';
-import { mockExecutions, mockTestPlans } from '../data/mockData';
-import { TestExecution } from '../types';
+import { useApp } from '../context/AppContext';
+import { TestExecution, TestCase } from '../types';
+
+interface ExecutionForm {
+  planId: string;
+  caseId: string;
+  result: TestExecution['result'];
+  actualResult: string;
+  logs: string;
+  screenshots: string[];
+}
 
 export default function TestExecutionPage() {
+  const {
+    testExecutions,
+    testPlans,
+    testCases,
+    addTestExecution,
+    addDefect,
+  } = useApp();
+
   const [searchText, setSearchText] = useState('');
   const [resultFilter, setResultFilter] = useState('all');
   const [planFilter, setPlanFilter] = useState('all');
-  const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'detail' | 'screenshot' | 'log'>('detail');
-
-  const filteredExecutions = mockExecutions.filter((exec) => {
-    const matchSearch = exec.caseTitle.toLowerCase().includes(searchText.toLowerCase());
-    const matchResult = resultFilter === 'all' || exec.result === resultFilter;
-    const matchPlan = planFilter === 'all' || exec.planId === planFilter;
-    return matchSearch && matchResult && matchPlan;
+  const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+  const [executionForm, setExecutionForm] = useState<ExecutionForm>({
+    planId: '',
+    caseId: '',
+    result: 'passed',
+    actualResult: '',
+    logs: '',
+    screenshots: [],
   });
+
+  const selectedExecution = useMemo(
+    () => testExecutions.find((e) => e.id === selectedExecutionId) || null,
+    [testExecutions, selectedExecutionId]
+  );
+
+  useEffect(() => {
+    if (selectedExecutionId && !testExecutions.find((e) => e.id === selectedExecutionId)) {
+      setSelectedExecutionId(null);
+    }
+  }, [testExecutions, selectedExecutionId]);
+
+  const filteredExecutions = useMemo(() => {
+    return testExecutions.filter((exec) => {
+      const matchSearch = exec.caseTitle.toLowerCase().includes(searchText.toLowerCase());
+      const matchResult = resultFilter === 'all' || exec.result === resultFilter;
+      const matchPlan = planFilter === 'all' || exec.planId === planFilter;
+      return matchSearch && matchResult && matchPlan;
+    });
+  }, [testExecutions, searchText, resultFilter, planFilter]);
+
+  const stats = useMemo(
+    () => ({
+      total: testExecutions.length,
+      passed: testExecutions.filter((e) => e.result === 'passed').length,
+      failed: testExecutions.filter((e) => e.result === 'failed').length,
+      blocked: testExecutions.filter((e) => e.result === 'blocked').length,
+    }),
+    [testExecutions]
+  );
 
   const getResultBadge = (result: TestExecution['result']) => {
     const config = {
@@ -41,7 +92,9 @@ export default function TestExecutionPage() {
     };
     const { label, class: cls, icon: Icon } = config[result];
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}
+      >
         <Icon size={12} />
         {label}
       </span>
@@ -55,18 +108,98 @@ export default function TestExecutionPage() {
     return mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
   };
 
-  const stats = {
-    total: mockExecutions.length,
-    passed: mockExecutions.filter((e) => e.result === 'passed').length,
-    failed: mockExecutions.filter((e) => e.result === 'failed').length,
-    blocked: mockExecutions.filter((e) => e.result === 'blocked').length,
+  const selectedPlanCases = useMemo(() => {
+    if (!executionForm.planId) return testCases;
+    const plan = testPlans.find((p) => p.id === executionForm.planId);
+    if (!plan) return [];
+    return testCases.filter((c) => plan.caseIds.includes(c.id) || c.groupId.startsWith('g'));
+  }, [executionForm.planId, testPlans, testCases]);
+
+  const handleStartRun = () => {
+    setExecutionForm({
+      planId: testPlans[0]?.id || '',
+      caseId: testCases[0]?.id || '',
+      result: 'passed',
+      actualResult: '',
+      logs: '',
+      screenshots: [],
+    });
+    setIsRunModalOpen(true);
+  };
+
+  const handleSaveExecution = () => {
+    if (!executionForm.planId || !executionForm.caseId) {
+      alert('请选择测试计划和用例');
+      return;
+    }
+
+    const plan = testPlans.find((p) => p.id === executionForm.planId);
+    const testCase = testCases.find((c) => c.id === executionForm.caseId);
+
+    const newExecution = addTestExecution({
+      planId: executionForm.planId,
+      planName: plan?.name || '',
+      caseId: executionForm.caseId,
+      caseTitle: testCase?.title || '',
+      executor: '王测试',
+      result: executionForm.result,
+      actualResult: executionForm.actualResult,
+      screenshots: executionForm.screenshots,
+      logs: executionForm.logs,
+      executedAt: new Date().toLocaleString('zh-CN'),
+      duration: Math.floor(Math.random() * 300) + 30,
+    });
+
+    setSelectedExecutionId(newExecution.id);
+    setIsRunModalOpen(false);
+  };
+
+  const handleReportDefect = () => {
+    if (!selectedExecution) return;
+
+    const defectDescription = `
+【关联用例】${selectedExecution.caseTitle}
+【执行结果】${getResultLabel(selectedExecution.result)}
+【实际结果】${selectedExecution.actualResult || '无'}
+【执行日志】
+${selectedExecution.logs || '无'}
+【截图】${selectedExecution.screenshots.length > 0 ? `共 ${selectedExecution.screenshots.length} 张` : '无'}
+    `.trim();
+
+    const newDefect = addDefect({
+      title: `【缺陷】${selectedExecution.caseTitle}`,
+      description: defectDescription,
+      severity: 'major',
+      priority: 'high',
+      assignee: '陈开发',
+      reporter: '王测试',
+      status: 'open',
+      executionId: selectedExecution.id,
+      caseId: selectedExecution.caseId,
+      caseTitle: selectedExecution.caseTitle,
+    });
+
+    alert(`缺陷已创建！\n缺陷ID: ${newDefect.id}\n可在缺陷管理页面查看`);
+  };
+
+  const getResultLabel = (result: TestExecution['result']) => {
+    const labels = {
+      passed: '通过',
+      failed: '失败',
+      blocked: '阻塞',
+      not_run: '未执行',
+    };
+    return labels[result];
   };
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold text-gray-800">测试执行</h1>
-        <button className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">
+        <button
+          onClick={handleStartRun}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+        >
           <Play size={16} />
           开始执行
         </button>
@@ -123,7 +256,10 @@ export default function TestExecutionPage() {
         <div className="flex-1 bg-white rounded-lg border border-gray-200 flex flex-col">
           <div className="p-4 border-b border-gray-100 flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 type="text"
                 placeholder="搜索用例标题..."
@@ -140,7 +276,7 @@ export default function TestExecutionPage() {
                 className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">全部计划</option>
-                {mockTestPlans.map((plan) => (
+                {testPlans.map((plan) => (
                   <option key={plan.id} value={plan.id}>
                     {plan.name}
                   </option>
@@ -192,9 +328,9 @@ export default function TestExecutionPage() {
                   <tr
                     key={exec.id}
                     className={`hover:bg-gray-50 cursor-pointer ${
-                      selectedExecution?.id === exec.id ? 'bg-blue-50' : ''
+                      selectedExecutionId === exec.id ? 'bg-blue-50' : ''
                     }`}
-                    onClick={() => setSelectedExecution(exec)}
+                    onClick={() => setSelectedExecutionId(exec.id)}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -211,7 +347,7 @@ export default function TestExecutionPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedExecution(exec);
+                          setSelectedExecutionId(exec.id);
                         }}
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                         title="查看详情"
@@ -237,7 +373,7 @@ export default function TestExecutionPage() {
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-medium text-gray-800">执行详情</h3>
               <button
-                onClick={() => setSelectedExecution(null)}
+                onClick={() => setSelectedExecutionId(null)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
                 <X size={18} className="text-gray-400" />
@@ -270,7 +406,9 @@ export default function TestExecutionPage() {
               {activeTab === 'detail' && (
                 <div className="space-y-4">
                   <div>
-                    <h4 className="font-medium text-gray-800 mb-2">{selectedExecution.caseTitle}</h4>
+                    <h4 className="font-medium text-gray-800 mb-2">
+                      {selectedExecution.caseTitle}
+                    </h4>
                     {getResultBadge(selectedExecution.result)}
                   </div>
 
@@ -295,7 +433,7 @@ export default function TestExecutionPage() {
 
                   <div>
                     <h5 className="text-sm font-medium text-gray-700 mb-2">实际结果</h5>
-                    <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 whitespace-pre-wrap">
                       {selectedExecution.actualResult || '无'}
                     </div>
                   </div>
@@ -320,7 +458,11 @@ export default function TestExecutionPage() {
                   </div>
 
                   {selectedExecution.result === 'failed' && (
-                    <button className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm hover:bg-red-100 transition-colors font-medium">
+                    <button
+                      onClick={handleReportDefect}
+                      className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm hover:bg-red-100 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <Bug size={14} />
                       提报缺陷
                     </button>
                   )}
@@ -357,6 +499,203 @@ export default function TestExecutionPage() {
           </div>
         )}
       </div>
+
+      {isRunModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-800">开始执行</h3>
+              <button
+                onClick={() => setIsRunModalOpen(false)}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    测试计划
+                  </label>
+                  <select
+                    value={executionForm.planId}
+                    onChange={(e) =>
+                      setExecutionForm({ ...executionForm, planId: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">请选择计划</option>
+                    {testPlans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">测试用例</label>
+                  <select
+                    value={executionForm.caseId}
+                    onChange={(e) =>
+                      setExecutionForm({ ...executionForm, caseId: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">请选择用例</option>
+                    {selectedPlanCases.map((tc) => (
+                      <option key={tc.id} value={tc.id}>
+                        {tc.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">执行结果</label>
+                <div className="flex gap-3">
+                  {[
+                    { value: 'passed', label: '通过', color: 'green' },
+                    { value: 'failed', label: '失败', color: 'red' },
+                    { value: 'blocked', label: '阻塞', color: 'yellow' },
+                  ].map((item) => (
+                    <label
+                      key={item.value}
+                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 border rounded-lg cursor-pointer transition-colors ${
+                        executionForm.result === item.value
+                          ? item.color === 'green'
+                            ? 'bg-green-50 border-green-500 text-green-600'
+                            : item.color === 'red'
+                            ? 'bg-red-50 border-red-500 text-red-600'
+                            : 'bg-yellow-50 border-yellow-500 text-yellow-600'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="result"
+                        value={item.value}
+                        checked={executionForm.result === item.value}
+                        onChange={(e) =>
+                          setExecutionForm({
+                            ...executionForm,
+                            result: e.target.value as TestExecution['result'],
+                          })
+                        }
+                        className="sr-only"
+                      />
+                      {item.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">实际结果</label>
+                <textarea
+                  rows={3}
+                  placeholder="请描述实际执行结果"
+                  value={executionForm.actualResult}
+                  onChange={(e) =>
+                    setExecutionForm({ ...executionForm, actualResult: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">执行日志</label>
+                <textarea
+                  rows={5}
+                  placeholder="请输入执行日志..."
+                  value={executionForm.logs}
+                  onChange={(e) =>
+                    setExecutionForm({ ...executionForm, logs: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none bg-gray-900 text-green-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">截图</label>
+                <div className="flex gap-2">
+                  {executionForm.screenshots.map((ss, i) => (
+                    <div
+                      key={i}
+                      className="relative w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center"
+                    >
+                      <ImageIcon size={24} className="text-gray-400" />
+                      <button
+                        onClick={() =>
+                          setExecutionForm({
+                            ...executionForm,
+                            screenshots: executionForm.screenshots.filter((_, idx) => idx !== i),
+                          })
+                        }
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() =>
+                      setExecutionForm({
+                        ...executionForm,
+                        screenshots: [
+                          ...executionForm.screenshots,
+                          `screenshot-${executionForm.screenshots.length + 1}.png`,
+                        ],
+                      })
+                    }
+                    className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+                  >
+                    <Plus size={20} />
+                    <span className="text-xs mt-1">添加截图</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setIsRunModalOpen(false)}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveExecution}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <Save size={16} />
+                保存执行结果
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function Plus(props: { size?: number; className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={props.size || 24}
+      height={props.size || 24}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={props.className}
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
   );
 }
